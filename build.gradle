@@ -1,0 +1,48 @@
+buildscript {
+    apply from: 'dependencies.gradle'
+}
+
+plugins {
+    id 'java'
+    id 'com.diffplug.spotless' version "${spotlessVersion}"
+    id 'com.github.ben-manes.versions' version "${benmanesVersion}"
+    id 'com.github.spotbugs' version "${spotbugsVersion}"
+}
+
+group = 'org.example'
+version = '1.0'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    // https://mvnrepository.com/artifact/com.sun.mail/jakarta.mail
+    implementation 'com.sun.mail:jakarta.mail:2.0.1'
+    // https://mvnrepository.com/artifact/org.jsoup/jsoup
+    implementation 'org.jsoup:jsoup:1.18.1'
+    // https://mvnrepository.com/artifact/com.typesafe/config
+    implementation 'com.typesafe:config:1.4.3'
+}
+
+tasks.withType(JavaCompile) {
+    options.release = 17
+}
+
+spotless {
+    java {
+        target 'src/**/*.java'
+        googleJavaFormat()
+    }
+}
+
+jar {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    manifest {
+        attributes 'Main-Class': 'Main'
+    }
+    from {
+        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+    exclude('META-INF/*.RSA', 'META-INF/*.SF', 'META-INF/*.DSA')
+}

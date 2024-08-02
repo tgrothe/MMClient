@@ -1,0 +1,15 @@
+ext {
+    // -- PLUGINS
+    spotlessVersion = '7.0.0.BETA1'
+    benmanesVersion = '0.51.0'
+    spotbugsVersion = '6.0.19'
+
+    // -- DEPENDENCIES
+    lang3Version = '3.14.0'
+    junitVersion = '4.13.2'
+
+    supportedDependencies = [
+            // Libs
+            lang3                      : "org.apache.commons:commons-lang3:$lang3Version",
+    ]
+}
