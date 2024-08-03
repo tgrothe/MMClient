@@ -12,6 +12,8 @@ import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.List;
 import javax.swing.*;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import javax.swing.table.AbstractTableModel;
 import javax.swing.table.TableCellRenderer;
 import org.jsoup.Jsoup;
@@ -46,7 +48,6 @@ public class Main {
       List<Message> l = new ArrayList<>();
       int c1 = emailFolder.getMessageCount();
       int c2 = 0;
-      int max_mails = 6;
       for (int i = c1; i > 0 && c2 < max_mails; i--, c2++) {
         l.add(emailFolder.getMessage(i));
       }
@@ -75,12 +76,16 @@ public class Main {
       }
     }
 
-    public List<Message> getMessages() throws Exception {
-      List<Message> l = new ArrayList<>();
+    public int getAccountCount() {
+      return accounts.size();
+    }
+
+    public Map<Account, List<Message>> getMessages() throws Exception {
+      Map<Account, List<Message>> messages = new LinkedHashMap<>();
       for (AccountConnection ac : connections) {
-        l.addAll(ac.getMessages());
+        messages.put(ac.account, ac.getMessages());
       }
-      return l;
+      return messages;
     }
 
     public void close() throws Exception {
@@ -108,7 +113,7 @@ public class Main {
                        "inboxName":"INBOX"
                     },
                     {
-                       "index":1,
+                       "index":2,
                        "host":"foo",
                        "port":993,
                        "user":"foo",
@@ -141,8 +146,12 @@ public class Main {
   static class MultiLineTableModel extends AbstractTableModel {
     private final List<String[]> data = new ArrayList<>();
 
-    public void addRow(String[] row) {
-      data.add(row);
+    public void addRow(Message message) {
+      try {
+        data.add(new String[] {getDate(message), getFrom(message), getSubject(message)});
+      } catch (Exception e) {
+        throw new RuntimeException(e);
+      }
       fireTableDataChanged();
     }
 
@@ -170,6 +179,11 @@ public class Main {
     public String getColumnName(int column) {
       return "Messages";
     }
+
+    @Override
+    public Class<?> getColumnClass(int columnIndex) {
+      return String[].class;
+    }
   }
 
   static class MultiLineTableCellRenderer extends JList<String> implements TableCellRenderer {
@@ -190,7 +204,33 @@ public class Main {
     }
   }
 
-  private static List<Message> messages = new ArrayList<>();
+  static class MultilineTable {
+    private final MultiLineTableModel model = new MultiLineTableModel();
+    private final JTable table = new JTable(model);
+    private int lastIndex = -1;
+    private long lastIndexTime = -1;
+
+    public MultilineTable() {
+      table.setDefaultRenderer(String[].class, new MultiLineTableCellRenderer());
+      table.setRowHeight((table.getRowHeight() + 3) * 3);
+      table
+          .getSelectionModel()
+          .addListSelectionListener(
+              e -> {
+                if (!e.getValueIsAdjusting()) {
+                  updateLastIndex();
+                }
+              });
+    }
+
+    private void updateLastIndex() {
+      lastIndex = table.getSelectedRow();
+      lastIndexTime = System.currentTimeMillis();
+    }
+  }
+
+  private static Map<Account, List<Message>> messages = new LinkedHashMap<>();
+  private static int max_mails = 6;
 
   private static String getDate(Message message) throws Exception {
     return message.getSentDate().toString();
@@ -229,46 +269,84 @@ public class Main {
   }
 
   private static void createGUI() {
+    AccountManager am = new AccountManager();
+
     JButton reloadButton = new JButton("Reload");
+    JTextField maxField = new JTextField(Integer.toString(max_mails));
+    maxField.setPreferredSize(new Dimension(30, 22));
     JButton displayButton = new JButton("Display");
 
-    MultiLineTableModel leftTableModel = new MultiLineTableModel();
-    JTable leftTable = new JTable(leftTableModel);
-    leftTable.getColumnModel().getColumn(0).setCellRenderer(new MultiLineTableCellRenderer());
-    leftTable.setRowHeight((leftTable.getRowHeight() + 3) * 3);
+    MultilineTable[] multilineTables = new MultilineTable[am.getAccountCount()];
+    for (int i = 0; i < multilineTables.length; i++) {
+      multilineTables[i] = new MultilineTable();
+    }
 
-    JTextArea rightTable = new JTextArea();
-    rightTable.setLineWrap(true);
-    rightTable.setWrapStyleWord(true);
-    rightTable.setEditable(false);
-    rightTable.setFont(new Font("Monospaced", Font.PLAIN, 12));
+    JTextArea area = new JTextArea();
+    area.setLineWrap(true);
+    area.setWrapStyleWord(true);
+    area.setEditable(false);
+    area.setFont(new Font("Monospaced", Font.PLAIN, 12));
 
     JPanel bp1 = new JPanel(new FlowLayout(FlowLayout.LEFT));
     bp1.add(reloadButton);
+    bp1.add(maxField);
     JPanel bp2 = new JPanel(new FlowLayout(FlowLayout.LEFT));
     bp2.add(displayButton);
     JPanel p1 = new JPanel(new GridLayout(1, 2));
     p1.add(bp1);
     p1.add(bp2);
+    JPanel tablesPanel = new JPanel(new GridLayout(multilineTables.length, 1));
+    for (MultilineTable t : multilineTables) {
+      tablesPanel.add(new JScrollPane(t.table));
+    }
     JPanel p2 = new JPanel(new GridLayout(1, 2));
-    p2.add(new JScrollPane(leftTable));
-    p2.add(new JScrollPane(rightTable));
+    p2.add(tablesPanel);
+    p2.add(new JScrollPane(area));
     JFrame f = new JFrame("MMClient");
     f.setLayout(new BorderLayout());
     f.add(p1, BorderLayout.NORTH);
     f.add(p2, BorderLayout.CENTER);
-    f.setSize(1200, 800);
+    f.setSize(1200, 850);
     f.setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
     f.setVisible(true);
 
-    AccountManager am = new AccountManager();
+    maxField
+        .getDocument()
+        .addDocumentListener(
+            new DocumentListener() {
+              public void changedUpdate(DocumentEvent e) {
+                upd();
+              }
+
+              public void removeUpdate(DocumentEvent e) {
+                upd();
+              }
+
+              public void insertUpdate(DocumentEvent e) {
+                upd();
+              }
+
+              public void upd() {
+                String s = maxField.getText();
+                if (!s.isBlank()) {
+                  try {
+                    max_mails = Integer.parseInt(s);
+                  } catch (NumberFormatException ignore) {
+                  }
+                }
+              }
+            });
     reloadButton.addActionListener(
         e -> {
           try {
-            leftTableModel.clearRows();
             messages = am.getMessages();
-            for (Message m : messages) {
-              leftTableModel.addRow(new String[] {getDate(m), getFrom(m), getSubject(m)});
+            int i = 0;
+            for (Map.Entry<Account, List<Message>> entry : messages.entrySet()) {
+              multilineTables[i].model.clearRows();
+              for (Message m : entry.getValue()) {
+                multilineTables[i].model.addRow(m);
+              }
+              i++;
             }
           } catch (Exception ex) {
             throw new RuntimeException(ex);
@@ -277,10 +355,20 @@ public class Main {
     displayButton.addActionListener(
         e -> {
           try {
-            int i = leftTable.getSelectedRow();
+            int i = -1;
+            int j = -1;
+            long t = -1;
+            for (int k = 0; k < multilineTables.length; k++) {
+              MultilineTable mul = multilineTables[k];
+              if (mul.lastIndex >= 0 && mul.lastIndexTime > t) {
+                i = k;
+                j = mul.lastIndex;
+                t = mul.lastIndexTime;
+              }
+            }
             if (i >= 0) {
-              Message m = messages.get(i);
-              rightTable.setText(
+              Message m = messages.get(am.connections.get(i).account).get(j);
+              area.setText(
                   getDate(m)
                       + "\n\n"
                       + getFrom(m)
@@ -288,7 +376,7 @@ public class Main {
                       + getSubject(m)
                       + "\n\n"
                       + getContent(m));
-              rightTable.setCaretPosition(0);
+              area.setCaretPosition(0);
             }
           } catch (Exception ex) {
             throw new RuntimeException(ex);
