@@ -58,9 +58,11 @@ public class Main {
       System.out.println("Closing connection to: " + account.host());
       if (emailFolder != null) {
         emailFolder.close();
+        emailFolder = null;
       }
       if (emailStore != null) {
         emailStore.close();
+        emailStore = null;
       }
     }
   }
@@ -146,12 +148,8 @@ public class Main {
   static class MultiLineTableModel extends AbstractTableModel {
     private final List<String[]> data = new ArrayList<>();
 
-    public void addRow(Message message) {
-      try {
-        data.add(new String[] {getDate(message), getFrom(message), getSubject(message)});
-      } catch (Exception e) {
-        throw new RuntimeException(e);
-      }
+    public void addRow(Message message) throws Exception {
+      data.add(new String[] {getDate(message), getFrom(message), getSubject(message)});
       fireTableDataChanged();
     }
 
@@ -230,7 +228,7 @@ public class Main {
   }
 
   private static Map<Account, List<Message>> messages = new LinkedHashMap<>();
-  private static int max_mails = 6;
+  private static volatile int max_mails = 6;
 
   private static String getDate(Message message) throws Exception {
     return message.getSentDate().toString();
@@ -315,18 +313,18 @@ public class Main {
         .addDocumentListener(
             new DocumentListener() {
               public void changedUpdate(DocumentEvent e) {
-                upd();
+                update();
               }
 
               public void removeUpdate(DocumentEvent e) {
-                upd();
+                update();
               }
 
               public void insertUpdate(DocumentEvent e) {
-                upd();
+                update();
               }
 
-              public void upd() {
+              public void update() {
                 String s = maxField.getText();
                 if (!s.isBlank()) {
                   try {
@@ -398,7 +396,7 @@ public class Main {
 
   public static void main(String[] args) {
     try {
-      createGUI();
+      SwingUtilities.invokeLater(Main::createGUI);
     } catch (Exception e) {
       JOptionPane.showMessageDialog(
           null,
